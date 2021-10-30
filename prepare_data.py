@@ -41,6 +41,6 @@ class PROTACSet(Dataset):
                   "ligase_ligand_bond": torch.tensor(ligase_ligand_bond, dtype=torch.float), 
                   "target_ligand_atom": torch.tensor(target_ligand_atom), 
                   "target_ligand_bond": torch.tensor(target_ligand_bond, dtype=torch.float),
-                  "smiles": torch.tensor(smiles), 
+                  "smiles": torch.tensor(smiles, dtype=torch.int), 
                   "label": torch.tensor(label, dtype=torch.long)}
         return sample

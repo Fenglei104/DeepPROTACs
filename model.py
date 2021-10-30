@@ -6,6 +6,7 @@ class GCNLayer(nn.Module):
         super().__init__()
         self.projection = nn.Linear(c_in, c_out)
         self.activation = nn.LeakyReLU(negative_slope=0.01)
+        # self.activation = nn.ReLU()
     
     def forward(self, node_feats, adj_matrix):
         """ node_feats : [batch_size, num_nodes, c_in]
@@ -29,7 +30,7 @@ class GraphConv(nn.Module):
         v = self.embed(node_feats)
         v = self.gcn1(v, adj_matrix)
         v = self.gcn2(v, adj_matrix)
-        v = torch.sum(v, dim=1)
+        v = torch.max(v, dim=1)[0]
         return v
 
 class SmilesNet(nn.Module):
@@ -57,11 +58,13 @@ class Classifier(nn.Sequential):
         self.target_ligand_model = target_ligand_model
         self.smiles_model = smiles_model
         self.fc1 = nn.Linear(64*5,64)
-        self.relu = nn.ReLU()
+        self.relu = nn.LeakyReLU(negative_slope=0.01)
+        # self.relu = nn.ReLU()
         self.fc2 = nn.Linear(64,2)
 
-    def forward(self, ligase_atom, ligase_bond, 
-        target_atom,  target_bond, 
+    def forward(self,
+        ligase_atom, ligase_bond, 
+        target_atom, target_bond, 
         ligase_ligand_atom, ligase_ligand_bond, 
         target_ligand_atom, target_ligand_bond, 
         smiles):

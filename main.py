@@ -13,9 +13,7 @@ import os
 # endregion
 # torch.cuda.empty_cache()
 
-
-Random_seeds = [1234, 6290, 6425, 9023, 3634, 7151, 7868, 2824]
-SEED = Random_seeds[7]
+SEED = 3634
 print('Seed is %d' % SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
@@ -27,18 +25,10 @@ np.random.seed(SEED)
 writer = SummaryWriter()
 LEARNING_RATE = 0.0001
 BATCH_SIZE = 1
-EPOCH = 400
-TRAIN_SIZE = 1972
-VALID_SIZE = 2218
+EPOCH = 600
+TRAIN_SIZE = int(2457 * 0.8)
 
-MODEL_NAME = 'final_e%d_s%d' % (EPOCH, SEED)
-VAL_INTERVAL = 2
-SMILES_CHAR =['?','C', '(', '=', 'O', ')', 'N', '[', '@', 'H', ']', '1', 'c', 'n', '/', '2', '#', 'S', 's', '+', '-', '\\', '3', '4', 'l', 'F', 'o', 'I', 'B', 'r', 'P', '5', '6', 'i', '7', '8', '9', '%', '0', 'p']
-
-def trans_smiles(x):
-    temp = list(x)
-    temp = [SMILES_CHAR.index(i) if i in SMILES_CHAR else 0 for i in temp]
-    return temp
+MODEL_NAME = 'model_%d' % (EPOCH)
 
 def read_pkl(path):
     with open(path,'rb') as f:
@@ -52,13 +42,13 @@ def main():
     target_bond_dict = read_pkl('data/target_bond.pkl')
     ligase_atom_dict = read_pkl('data/ligase_atom.pkl')
     ligase_bond_dict = read_pkl('data/ligase_bond.pkl')
-    target_ligand_atom_dict = read_pkl('data/target_ligand_atom.pkl')
-    target_ligand_bond_dict = read_pkl('data/target_ligand_bond.pkl')
-    ligase_ligand_atom_dict = read_pkl('data/ligase_ligand_atom.pkl')
-    ligase_ligand_bond_dict = read_pkl('data/ligase_ligand_bond.pkl')
+    target_ligand_atom_dict = read_pkl('data/ligand_target_atom.pkl')
+    target_ligand_bond_dict = read_pkl('data/ligand_target_bond.pkl')
+    ligase_ligand_atom_dict = read_pkl('data/ligand_ligase_atom.pkl')
+    ligase_ligand_bond_dict = read_pkl('data/ligand_ligase_bond.pkl')
     label_dict = read_pkl('data/label.pkl')
 
-    smiles = [trans_smiles(smiles_dict[x]) for x in name_list]
+    smiles = [smiles_dict[x] for x in name_list]
     target_atom = [target_atom_dict[x] for x in name_list]
     target_bond = [target_bond_dict[x] for x in name_list]
     ligase_atom = [ligase_atom_dict[x] for x in name_list]
@@ -69,24 +59,28 @@ def main():
     ligase_ligand_bond = [ligase_ligand_bond_dict[x] for x in name_list]
     label = [label_dict[x] for x in name_list]
 
-    train_data = PROTACSet(ligase_atom[:TRAIN_SIZE], ligase_bond[:TRAIN_SIZE],
-                           target_atom[:TRAIN_SIZE], target_bond[:TRAIN_SIZE],
-                           ligase_ligand_atom[:TRAIN_SIZE], ligase_ligand_bond[:TRAIN_SIZE],
-                           target_ligand_atom[:TRAIN_SIZE], target_ligand_bond[:TRAIN_SIZE],
-                           smiles[:TRAIN_SIZE], label[:TRAIN_SIZE])
-    valid_data = PROTACSet(ligase_atom[TRAIN_SIZE:], ligase_bond[TRAIN_SIZE:],
-                           target_atom[TRAIN_SIZE:], target_bond[TRAIN_SIZE:],
-                           ligase_ligand_atom[TRAIN_SIZE:], ligase_ligand_bond[TRAIN_SIZE:],
-                           target_ligand_atom[TRAIN_SIZE:], target_ligand_bond[TRAIN_SIZE:],
-                           smiles[TRAIN_SIZE:], label[TRAIN_SIZE:])
-    test_data = PROTACSet(ligase_atom[TRAIN_SIZE:], ligase_bond[TRAIN_SIZE:],
-                          target_atom[TRAIN_SIZE:], target_bond[TRAIN_SIZE:],
-                          ligase_ligand_atom[TRAIN_SIZE:], ligase_ligand_bond[TRAIN_SIZE:],
-                          target_ligand_atom[TRAIN_SIZE:], target_ligand_bond[TRAIN_SIZE:],
-                          smiles[TRAIN_SIZE:], label[TRAIN_SIZE:])
+    train_data = PROTACSet(ligase_atom[:TRAIN_SIZE], 
+                           ligase_bond[:TRAIN_SIZE],
+                           target_atom[:TRAIN_SIZE], 
+                           target_bond[:TRAIN_SIZE],
+                           ligase_ligand_atom[:TRAIN_SIZE], 
+                           ligase_ligand_bond[:TRAIN_SIZE],
+                           target_ligand_atom[:TRAIN_SIZE], 
+                           target_ligand_bond[:TRAIN_SIZE],
+                           smiles[:TRAIN_SIZE], 
+                           label[:TRAIN_SIZE])
+    test_data = PROTACSet(ligase_atom[TRAIN_SIZE:], 
+                          ligase_bond[TRAIN_SIZE:],
+                          target_atom[TRAIN_SIZE:], 
+                          target_bond[TRAIN_SIZE:],
+                          ligase_ligand_atom[TRAIN_SIZE:], 
+                          ligase_ligand_bond[TRAIN_SIZE:],
+                          target_ligand_atom[TRAIN_SIZE:], 
+                          target_ligand_bond[TRAIN_SIZE:],
+                          smiles[TRAIN_SIZE:], 
+                          label[TRAIN_SIZE:])
 
     train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-    valid_loader = DataLoader(valid_data, batch_size=BATCH_SIZE, shuffle=False)
     test_loader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False)
 
     ligase_model = GraphConv(num_embeddings=5)
@@ -94,14 +88,21 @@ def main():
     ligase_ligand_model = GraphConv(num_embeddings=10)
     target_ligand_model = GraphConv(num_embeddings=10)
     smiles_model = SmilesNet()
-    model = Classifier(ligase_model, target_model, ligase_ligand_model, target_ligand_model, smiles_model)
-    # device = torch.device('cpu')
+    model = Classifier(ligase_model, 
+                       target_model, 
+                       ligase_ligand_model, 
+                       target_ligand_model, 
+                       smiles_model)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    model = train(model, LEARNING_RATE, EPOCH, train_loader, valid_loader, device, writer, MODEL_NAME, VAL_INTERVAL)
-    torch.save(model,'model_%s.pth' % MODEL_NAME)
-    loss_test, acc_test = valid(model, test_loader, device)
-    print('Test with loss: %.4f, accuracy: %.4f' % (loss_test, acc_test))
+    model = train(model, 
+                  LEARNING_RATE, 
+                  EPOCH, 
+                  train_loader, 
+                  test_loader, 
+                  device, 
+                  writer, 
+                  MODEL_NAME)
 
 if __name__== '__main__':
     main()
