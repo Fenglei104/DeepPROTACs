@@ -1,79 +1,72 @@
 import torch
 import torch.nn as nn
-
-class GCNLayer(nn.Module):
-    def __init__(self, c_in, c_out):
-        super().__init__()
-        self.projection = nn.Linear(c_in, c_out)
-        self.activation = nn.LeakyReLU(negative_slope=0.01)
-        # self.activation = nn.ReLU()
-    
-    def forward(self, node_feats, adj_matrix):
-        """ node_feats : [batch_size, num_nodes, c_in]
-            adj_matrix : [batch_size, num_nodes, num_nodes]
-        """
-        num_neighbours = adj_matrix.sum(dim=-1)
-        lap = torch.diag(torch.pow(num_neighbours,-0.5)) * adj_matrix * torch.diag(torch.pow(num_neighbours,-0.5))
-        node_feats = self.projection(node_feats)
-        node_feats = torch.bmm(lap, node_feats)
-        node_feats = self.activation(node_feats)
-        return node_feats
+import torch.nn.functional as F
+from torch_geometric.nn import GCNConv, global_max_pool
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class GraphConv(nn.Module):
     def __init__(self, num_embeddings):
         super().__init__()
         self.embed = nn.Embedding(num_embeddings, embedding_dim = 64)
-        self.gcn1 = GCNLayer(c_in=64, c_out=128)
-        self.gcn2 = GCNLayer(c_in=128, c_out=64)
+        self.gcn1 = GCNConv(64, 128)
+        self.gcn2 = GCNConv(128, 64)
 
-    def forward(self, node_feats, adj_matrix):
-        v = self.embed(node_feats)
-        v = self.gcn1(v, adj_matrix)
-        v = self.gcn2(v, adj_matrix)
-        v = torch.max(v, dim=1)[0]
-        return v
+    def forward(self, data):
+        x, edge_index, batch = data.x, data.edge_index, data.batch
+        edge_attr = data.edge_attr.to(torch.float)
+        x = self.embed(x)
+        x = self.gcn1(x, edge_index, edge_attr)
+        x = F.relu(x)
+        x = self.gcn2(x, edge_index, edge_attr)
+        x = global_max_pool(x, batch)
+        return x
 
 class SmilesNet(nn.Module):
-    def __init__(self):
+    def __init__(self, batch_size = 1):
         super().__init__()
-        self.embed = nn.Embedding(40, 64)
+        self.batch_size = batch_size
+        self.embed = nn.Embedding(41, 64, padding_idx=0)
         self.lstm = nn.LSTM(64, 64, batch_first=True, bidirectional=True)
         self.fc = nn.Linear(128, 64)
 
-    def forward(self, x):
+    def forward(self, x, s):
         x = self.embed(x)
-        out, (h_0, c_0) = self.lstm(x, None)
+        x = pack_padded_sequence(x, s, batch_first=True, enforce_sorted=False)
+        out, (h, c) = self.lstm(x, None)
+        out, _ = pad_packed_sequence(out, batch_first=True)
         y = self.fc(out[:,-1,:])
         return y
 
-class Classifier(nn.Sequential):
-    def __init__(self, ligase_model, target_model, 
-        ligase_ligand_model, target_ligand_model, 
-        smiles_model):
+class ProtacModel(nn.Module):
+    def __init__(self, 
+                 ligase_ligand_model, 
+                 ligase_pocket_model,
+                 target_ligand_model, 
+                 target_pocket_model, 
+                 smiles_model):
         
         super().__init__()
-        self.ligase_model = ligase_model
-        self.target_model = target_model
         self.ligase_ligand_model = ligase_ligand_model
+        self.ligase_pocket_model = ligase_pocket_model
         self.target_ligand_model = target_ligand_model
+        self.target_pocket_model = target_pocket_model
         self.smiles_model = smiles_model
         self.fc1 = nn.Linear(64*5,64)
         self.relu = nn.LeakyReLU(negative_slope=0.01)
-        # self.relu = nn.ReLU()
         self.fc2 = nn.Linear(64,2)
 
     def forward(self,
-        ligase_atom, ligase_bond, 
-        target_atom, target_bond, 
-        ligase_ligand_atom, ligase_ligand_bond, 
-        target_ligand_atom, target_ligand_bond, 
-        smiles):
-        
-        v_0 = self.ligase_model(ligase_atom, ligase_bond)
-        v_1 = self.target_model(target_atom, target_bond)
-        v_2 = self.ligase_ligand_model(ligase_ligand_atom, ligase_ligand_bond)
-        v_3 = self.target_ligand_model(target_ligand_atom, target_ligand_bond)
-        v_4 = self.smiles_model(smiles) 
+                ligase_ligand,
+                ligase_pocket,
+                target_ligand,
+                target_pocket,
+                smiles,
+                smiles_length,):
+        v_0 = self.ligase_ligand_model(ligase_ligand)
+        v_1 = self.ligase_pocket_model(ligase_pocket)
+        v_2 = self.target_ligand_model(target_ligand)
+        v_3 = self.target_pocket_model(target_pocket)
+        v_4 = self.smiles_model(smiles, smiles_length)
         v_f = torch.cat((v_0, v_1, v_2, v_3, v_4), 1)
         v_f = self.relu(self.fc1(v_f))
         v_f = self.fc2(v_f)

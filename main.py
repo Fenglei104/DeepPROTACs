@@ -1,108 +1,85 @@
-# region import
-from prepare_data import PROTACSet
-from model import GraphConv, SmilesNet, Classifier
-from train_and_test import train, valid
-import torch
-import torch.nn as nn
-import pickle
-from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
+import sys
 import numpy as np
-import random
+import torch
 import os
-# endregion
-# torch.cuda.empty_cache()
+import pickle
+import logging
+from pathlib import  Path
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from protacloader import PROTACSet, collater
+from model import GraphConv, SmilesNet, ProtacModel
+from train_and_test import train
+from prepare_data import GraphData
 
-SEED = 3634
-print('Seed is %d' % SEED)
-torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED)
-torch.backends.cudnn.deterministic=True
-torch.backends.cudnn.benchmark = False
-random.seed(SEED)
-np.random.seed(SEED)
 
-writer = SummaryWriter()
-LEARNING_RATE = 0.0001
 BATCH_SIZE = 1
-EPOCH = 600
-TRAIN_SIZE = int(2457 * 0.8)
+EPOCH = 30
+TRAIN_RATE = 0.8
+LEARNING_RATE = 0.0001
+TRAIN_NAME = "test"
+root = "data"
+logging.basicConfig(filename="log/"+TRAIN_NAME+".log", filemode="w", level=logging.DEBUG)
 
-MODEL_NAME = 'model_%d' % (EPOCH)
-
-def read_pkl(path):
-    with open(path,'rb') as f:
-        pkl_content = pickle.load(f)
-    return pkl_content
 
 def main():
-    name_list = read_pkl('data/name.pkl')
-    smiles_dict = read_pkl('data/smiles.pkl')
-    target_atom_dict = read_pkl('data/target_atom.pkl')
-    target_bond_dict = read_pkl('data/target_bond.pkl')
-    ligase_atom_dict = read_pkl('data/ligase_atom.pkl')
-    ligase_bond_dict = read_pkl('data/ligase_bond.pkl')
-    target_ligand_atom_dict = read_pkl('data/ligand_target_atom.pkl')
-    target_ligand_bond_dict = read_pkl('data/ligand_target_bond.pkl')
-    ligase_ligand_atom_dict = read_pkl('data/ligand_ligase_atom.pkl')
-    ligase_ligand_bond_dict = read_pkl('data/ligand_ligase_bond.pkl')
-    label_dict = read_pkl('data/label.pkl')
+    ligase_ligand = GraphData("ligase_ligand", root)
+    ligase_pocket = GraphData("ligase_pocket", root)
+    target_ligand = GraphData("target_ligand", root)
+    target_pocket = GraphData("target_pocket", root)
+    with open(os.path.join(target_pocket.processed_dir, "smiles.pkl"),"rb") as f:
+        smiles = pickle.load(f)
+    with open('name.pkl','rb') as f:
+        name_list = pickle.load(f)
+    label = torch.load(os.path.join(target_pocket.processed_dir, "label.pt"))
 
-    smiles = [smiles_dict[x] for x in name_list]
-    target_atom = [target_atom_dict[x] for x in name_list]
-    target_bond = [target_bond_dict[x] for x in name_list]
-    ligase_atom = [ligase_atom_dict[x] for x in name_list]
-    ligase_bond = [ligase_bond_dict[x] for x in name_list]
-    target_ligand_atom = [target_ligand_atom_dict[x] for x in name_list]
-    target_ligand_bond = [target_ligand_bond_dict[x] for x in name_list]
-    ligase_ligand_atom = [ligase_ligand_atom_dict[x] for x in name_list]
-    ligase_ligand_bond = [ligase_ligand_bond_dict[x] for x in name_list]
-    label = [label_dict[x] for x in name_list]
+    protac_set = PROTACSet(
+        name_list,
+        ligase_ligand, 
+        ligase_pocket, 
+        target_ligand, 
+        target_pocket, 
+        smiles, 
+        label,
+    )
+    data_size = len(protac_set)
+    train_size = int(data_size * TRAIN_RATE)
+    test_size = data_size - train_size
+    logging.info(f"all data: {data_size}")
+    logging.info(f"train data: {train_size}")
+    logging.info(f"test data: {test_size}")
+    train_dataset = torch.utils.data.Subset(protac_set, range(train_size))
+    test_dataset = torch.utils.data.Subset(protac_set, range(train_size, data_size))
+    trainloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, collate_fn=collater,drop_last=False, shuffle=True)
+    testloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, collate_fn=collater,drop_last=False)
 
-    train_data = PROTACSet(ligase_atom[:TRAIN_SIZE], 
-                           ligase_bond[:TRAIN_SIZE],
-                           target_atom[:TRAIN_SIZE], 
-                           target_bond[:TRAIN_SIZE],
-                           ligase_ligand_atom[:TRAIN_SIZE], 
-                           ligase_ligand_bond[:TRAIN_SIZE],
-                           target_ligand_atom[:TRAIN_SIZE], 
-                           target_ligand_bond[:TRAIN_SIZE],
-                           smiles[:TRAIN_SIZE], 
-                           label[:TRAIN_SIZE])
-    test_data = PROTACSet(ligase_atom[TRAIN_SIZE:], 
-                          ligase_bond[TRAIN_SIZE:],
-                          target_atom[TRAIN_SIZE:], 
-                          target_bond[TRAIN_SIZE:],
-                          ligase_ligand_atom[TRAIN_SIZE:], 
-                          ligase_ligand_bond[TRAIN_SIZE:],
-                          target_ligand_atom[TRAIN_SIZE:], 
-                          target_ligand_bond[TRAIN_SIZE:],
-                          smiles[TRAIN_SIZE:], 
-                          label[TRAIN_SIZE:])
-
-    train_loader = DataLoader(train_data, batch_size=BATCH_SIZE, shuffle=True)
-    test_loader = DataLoader(test_data, batch_size=BATCH_SIZE, shuffle=False)
-
-    ligase_model = GraphConv(num_embeddings=5)
-    target_model = GraphConv(num_embeddings=5)
     ligase_ligand_model = GraphConv(num_embeddings=10)
+    ligase_pocket_model = GraphConv(num_embeddings=5)
     target_ligand_model = GraphConv(num_embeddings=10)
-    smiles_model = SmilesNet()
-    model = Classifier(ligase_model, 
-                       target_model, 
-                       ligase_ligand_model, 
-                       target_ligand_model, 
-                       smiles_model)
+    target_pocket_model = GraphConv(num_embeddings=5)
+    smiles_model = SmilesNet(batch_size=BATCH_SIZE)
+    model = ProtacModel(
+        ligase_ligand_model, 
+        ligase_pocket_model,
+        target_ligand_model,
+        target_pocket_model,
+        smiles_model,
+    )
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    writer = SummaryWriter(f'runs/{TRAIN_NAME}')
+    model = train(
+        model, 
+        train_loader=trainloader, 
+        valid_loader=testloader,
+        device=device,
+        writer=writer,
+        LOSS_NAME=TRAIN_NAME,
+        batch_size=BATCH_SIZE,
+        epoch=EPOCH,
+        lr=LEARNING_RATE
+    )
 
-    model = train(model, 
-                  LEARNING_RATE, 
-                  EPOCH, 
-                  train_loader, 
-                  test_loader, 
-                  device, 
-                  writer, 
-                  MODEL_NAME)
-
-if __name__== '__main__':
+if __name__ == "__main__":
+    Path('log').mkdir(exist_ok=True)
+    Path('model').mkdir(exist_ok=True)
     main()
