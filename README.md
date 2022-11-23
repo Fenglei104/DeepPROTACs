@@ -1,6 +1,8 @@
 # DeepPROTACs
 
-This model is to predict degradation of the target given PROTACs complex.
+This model is to predict degradation of the target given PROTACs complex. This repository can help reproduce the experiments of:
+
+Li, F., Hu, Q., Zhang, X. et al. DeepPROTACs is a deep learning-based targeted degradation predictor for PROTACs. Nat Commun 13, 7133 (2022). https://doi.org/10.1038/s41467-022-34807-3
 
 ## Training:
 1. Prepare the data. This script needs the ligase pocket, target pocket, ligase ligand, target ligand, linker and the label. Here we have a script  "prepare_data.ipynb" which we use to extract ligand pocket from the complex without linker.
