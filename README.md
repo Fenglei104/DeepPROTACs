@@ -36,3 +36,5 @@ to test. You should submit the  ligase pocket, target pocket, ligase ligand,
 target ligand, and linker to get the result. 
 
 ### BaiLab
+
+* This project is free for research teams. Please do not charge for commercial purposes.
