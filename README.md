@@ -31,7 +31,7 @@ Li, F., Hu, Q., Zhang, X. et al. DeepPROTACs is a deep learning-based targeted d
 Please run "case_study.ipynb". The file is to test on the toy data which contains 16 complex in the paper, and it will output the true labels and predicted labels of each complex.
 
 ## Single Prediction:
-If you want just to predict one single PROTACs complex, please prepare your files into one dirctory, such as `single_test`, and name the files as `ligase_ligand.mol2`, `ligase_pocket.mol2`, `target_ligand.mol2`, `target_pocket.mol2` and `linker.smi` respectively. Then run the  `  `single_prediction.py` plus your dir name, like, 
+If you want just to predict one single PROTACs complex, please prepare your files into one dirctory, such as `single_test`, and name the files as `ligase_ligand.mol2`, `ligase_pocket.mol2`, `target_ligand.mol2`, `target_pocket.mol2` and `linker.smi` respectively. Then run the  `single_prediction.py` plus your dir name, like, 
 ```
 python single_prediction.py single_test
 ```
